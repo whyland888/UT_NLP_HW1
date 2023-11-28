@@ -48,6 +48,9 @@ class UnigramFeatureExtractor(FeatureExtractor):
             indexer.add_and_get_index(word, add=add_to_indexer)
         return Counter(sentence)
 
+    def get_indexer(self):
+        return self.indexer
+
 
 class BigramFeatureExtractor(FeatureExtractor):
     """
@@ -91,13 +94,14 @@ class PerceptronClassifier(SentimentClassifier):
     superclass. Hint: you'll probably need this class to wrap both the weight vector and featurizer -- feel free to
     modify the constructor to pass these in.
     """
-    def __init__(self, num_features, feature_dict):
-        # Initialize weights and bias
-        self.weights = np.zeros(num_features)
-        self.bias = 0
+    def __init__(self, feature_dict):
         self.feature_dict = feature_dict
         self.vocab = {word: idx for idx, word in enumerate(set(word for count in self.feature_dict
                                                                for word in count.keys()))}
+
+        # Initialize weights and bias
+        self.weights = np.zeros(len(self.vocab))
+        self.bias = 0
 
     def predict(self, sentence: List[str]) -> int:
         """
@@ -135,7 +139,11 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
     :param feat_extractor: feature extractor to use
     :return: trained PerceptronClassifier model
     """
-    raise Exception("Must be implemented")
+    frequency_dicts = [feat_extractor.extract_features(sentence, add_to_indexer=True) for sentence in train_exs.words]
+    labels = train_exs.labels
+    perceptron = PerceptronClassifier(feature_dict=frequency_dicts)
+    perceptron.train(X_train=frequency_dicts, y_train=labels)
+
 
 
 def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> LogisticRegressionClassifier:
