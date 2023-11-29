@@ -94,10 +94,16 @@ class PerceptronClassifier(SentimentClassifier):
     superclass. Hint: you'll probably need this class to wrap both the weight vector and featurizer -- feel free to
     modify the constructor to pass these in.
     """
-    def __init__(self, feature_dict):
+    def __init__(self, feature_dict, indexer):
         self.feature_dict = feature_dict
-        self.vocab = {word: idx for idx, word in enumerate(set(word for count in self.feature_dict
-                                                               for word in count.keys()))}
+        self.indexer = indexer
+
+        # Add up individual dictionaries to get vocab
+        combined_counter = Counter()
+        for x in feature_dict:
+            combined_counter.update(x)
+
+        self.vocab = dict(combined_counter)
 
         # Initialize weights and bias
         self.weights = np.zeros(len(self.vocab))
@@ -108,18 +114,30 @@ class PerceptronClassifier(SentimentClassifier):
         :param sentence: words (List[str]) in the sentence to classify
         :return: Either 0 for negative class or 1 for positive class
         """
-        x = np.array([[count.get(word, 0) for word in self.vocab] for count in self.feature_dict])
+        x = self.convert_to_vector(sentence, self.indexer)
         z = np.dot(self.weights, x) + self.bias
         prediction = 1 if z > 0 else 0
         return prediction
 
-    def train(self, X_train, y_train, num_epochs=10, learning_rate=1):
+    def train(self, data, num_epochs=10, learning_rate=.5):
         for epoch in range(num_epochs):
-            for i in range(len(X_train)):
-                prediction = self.predict(X_train[i])
-                update = learning_rate * (y_train[i] - prediction)
-                self.weights += update * X_train[i]
+            for sentence in data:
+                x = self.convert_to_vector(sentence.words, self.indexer)
+                prediction = self.predict(sentence.words)
+                update = learning_rate * (sentence.label - prediction)
+                self.weights += (update * x)
                 self.bias += update
+
+    def convert_to_vector(self, sentence, indexer):
+        feat_vector = np.zeros(len(self.vocab))
+        sent_counter = Counter(sentence)
+        words = list(sent_counter.keys())
+        counts = list(sent_counter.values())
+        indices = [indexer.index_of(word) for word in words]
+        for i in range(len(indices)):
+            index = indices[i]
+            feat_vector[index] = counts[i]
+        return feat_vector
 
 
 class LogisticRegressionClassifier(SentimentClassifier):
@@ -139,10 +157,11 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
     :param feat_extractor: feature extractor to use
     :return: trained PerceptronClassifier model
     """
-    frequency_dicts = [feat_extractor.extract_features(sentence, add_to_indexer=True) for sentence in train_exs.words]
-    labels = train_exs.labels
-    perceptron = PerceptronClassifier(feature_dict=frequency_dicts)
-    perceptron.train(X_train=frequency_dicts, y_train=labels)
+    frequency_dicts = [feat_extractor.extract_features(sentence.words, add_to_indexer=True) for sentence in train_exs]
+    indexer = feat_extractor.get_indexer()
+    perceptron = PerceptronClassifier(feature_dict=frequency_dicts, indexer=indexer)
+    perceptron.train(data=train_exs)
+    return perceptron
 
 
 
