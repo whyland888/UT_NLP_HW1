@@ -72,28 +72,6 @@ class SentimentClassifier(object):
     """
     Sentiment classifier base type
     """
-    def predict(self, sentence: List[str]) -> int:
-        """
-        :param sentence: words (List[str]) in the sentence to classify
-        :return: Either 0 for negative class or 1 for positive class
-        """
-        raise Exception("Don't call me, call my subclasses")
-
-
-class TrivialSentimentClassifier(SentimentClassifier):
-    """
-    Sentiment classifier that always predicts the positive class.
-    """
-    def predict(self, sentence: List[str]) -> int:
-        return 1
-
-
-class PerceptronClassifier(SentimentClassifier):
-    """
-    Implement this class -- you should at least have init() and implement the predict method from the SentimentClassifier
-    superclass. Hint: you'll probably need this class to wrap both the weight vector and featurizer -- feel free to
-    modify the constructor to pass these in.
-    """
     def __init__(self, feature_dict, indexer):
         self.feature_dict = feature_dict
         self.indexer = indexer
@@ -114,19 +92,7 @@ class PerceptronClassifier(SentimentClassifier):
         :param sentence: words (List[str]) in the sentence to classify
         :return: Either 0 for negative class or 1 for positive class
         """
-        x = self.convert_to_vector(sentence, self.indexer)
-        z = np.dot(self.weights, x) + self.bias
-        prediction = 1 if z > 0 else 0
-        return prediction
-
-    def train(self, data, num_epochs=10, learning_rate=.5):
-        for epoch in range(num_epochs):
-            for sentence in data:
-                x = self.convert_to_vector(sentence.words, self.indexer)
-                prediction = self.predict(sentence.words)
-                update = learning_rate * (sentence.label - prediction)
-                self.weights += (update * x)
-                self.bias += update
+        raise Exception("Don't call me, call my subclasses")
 
     def convert_to_vector(self, sentence, indexer):
         feat_vector = np.zeros(len(self.vocab))
@@ -140,14 +106,80 @@ class PerceptronClassifier(SentimentClassifier):
         return feat_vector
 
 
+class TrivialSentimentClassifier(SentimentClassifier):
+    """
+    Sentiment classifier that always predicts the positive class.
+    """
+    def predict(self, sentence: List[str]) -> int:
+        return 1
+
+
+class PerceptronClassifier(SentimentClassifier):
+    """
+    Implement this class -- you should at least have init() and implement the predict method from the SentimentClassifier
+    superclass. Hint: you'll probably need this class to wrap both the weight vector and featurizer -- feel free to
+    modify the constructor to pass these in.
+    """
+
+    def predict(self, sentence: List[str]) -> int:
+        """
+        :param sentence: words (List[str]) in the sentence to classify
+        :return: Either 0 for negative class or 1 for positive class
+        """
+        x = self.convert_to_vector(sentence, self.indexer)
+        z = np.dot(self.weights, x) + self.bias
+        prediction = 1 if z > 0 else 0
+        return prediction
+
+    def train(self, data, num_epochs=20, learning_rate=1):
+        for epoch in range(num_epochs):
+            for sentence in data:
+                x = self.convert_to_vector(sentence.words, self.indexer)
+                prediction = self.predict(sentence.words)
+                update = learning_rate * (sentence.label - prediction)
+                self.weights += (update * x)
+                self.bias += update
+            np.random.shuffle(data)
+
+
 class LogisticRegressionClassifier(SentimentClassifier):
     """
     Implement this class -- you should at least have init() and implement the predict method from the SentimentClassifier
     superclass. Hint: you'll probably need this class to wrap both the weight vector and featurizer -- feel free to
     modify the constructor to pass these in.
     """
-    def __init__(self):
-        raise Exception("Must be implemented")
+    def sigmoid(self, z):
+        z = np.clip(z, -500, 500)
+        return 1/(1 + np.exp(-z))
+
+    def binary_cross_entropy(self, y, y_pred):
+        epsilon = 1e-10
+        y_pred = np.clip(y_pred, epsilon, 1-epsilon)
+        return -1 * (y * np.log(y_pred) + (1 - y) * np.log(1 - y_pred))
+
+    def predict(self, sentence: List[str]) -> int:
+        x = self.convert_to_vector(sentence, self.indexer)
+        z = self.sigmoid(np.dot(x, self.weights))
+        prediction = 1 if z > .5 else 0
+        return prediction
+
+    def train(self, data, n_epochs=15, learning_rate=.1):
+        predictions = []
+        for epoch in range(n_epochs):
+            for sentence in data:
+                x = self.convert_to_vector(sentence.words, self.indexer)
+                prediction = self.predict(sentence.words)
+                loss = self.binary_cross_entropy(sentence.label, prediction)
+                print(loss)
+                predictions.append(prediction)
+
+                # Backward pass
+                update = learning_rate * loss
+                self.weights += (update * x)
+                self.bias += update
+
+            np.random.shuffle(data)
+            break
 
 
 def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> PerceptronClassifier:
@@ -164,7 +196,6 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
     return perceptron
 
 
-
 def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> LogisticRegressionClassifier:
     """
     Train a logistic regression model.
@@ -172,7 +203,11 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     :param feat_extractor: feature extractor to use
     :return: trained LogisticRegressionClassifier model
     """
-    raise Exception("Must be implemented")
+    frequency_dicts = [feat_extractor.extract_features(sentence.words, add_to_indexer=True) for sentence in train_exs]
+    indexer = feat_extractor.get_indexer()
+    logreg = LogisticRegressionClassifier(feature_dict=frequency_dicts, indexer=indexer)
+    logreg.train(data=train_exs)
+    return logreg
 
 
 def train_model(args, train_exs: List[SentimentExample], dev_exs: List[SentimentExample]) -> SentimentClassifier:
