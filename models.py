@@ -96,9 +96,9 @@ class BetterFeatureExtractor(FeatureExtractor):
     def __init__(self, indexer: Indexer):
         self.indexer = indexer
 
-    # ef extract_features(self, sentence: List[str], add_to_indexer: bool=False) -> Counter:
-    # sentence = [self.remove_punctuation(word) for word in sentence]
-    # indexer = self.indexer
+    def extract_features(self, sentence: List[str], add_to_indexer: bool=False) -> Counter:
+        sentence = [self.remove_punctuation(word) for word in sentence]
+
 
 
 class SentimentClassifier(object):
