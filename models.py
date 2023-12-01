@@ -153,33 +153,58 @@ class LogisticRegressionClassifier(SentimentClassifier):
         return 1/(1 + np.exp(-z))
 
     def binary_cross_entropy(self, y, y_pred):
-        epsilon = 1e-10
-        y_pred = np.clip(y_pred, epsilon, 1-epsilon)
-        return -1 * (y * np.log(y_pred) + (1 - y) * np.log(1 - y_pred))
+        epsilon = 1e-15
+        y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
+        return -1/len(y) * np.sum(y * np.log(y_pred) + (1 - y) * np.log(1 - y_pred))
 
     def predict(self, sentence: List[str]) -> int:
-        x = self.convert_to_vector(sentence, self.indexer)
-        z = self.sigmoid(np.dot(x, self.weights))
+        X = np.array(self.convert_to_vector(sentence, self.indexer))
+        X = X/np.linalg.norm(X)
+
+        # Normalize
+        mean = np.mean(X)
+        std_dev = np.std(X)
+        X = (X - mean) / std_dev
+
+        linear_preds = np.dot(X, self.weights) + self.bias
+        z = self.sigmoid(linear_preds)
         prediction = 1 if z > .5 else 0
         return prediction
 
-    def train(self, data, n_epochs=15, learning_rate=.1):
-        predictions = []
-        for epoch in range(n_epochs):
-            for sentence in data:
-                x = self.convert_to_vector(sentence.words, self.indexer)
-                prediction = self.predict(sentence.words)
-                loss = self.binary_cross_entropy(sentence.label, prediction)
-                print(loss)
-                predictions.append(prediction)
+    def train(self, data, iterations=4000, learning_rate=.002):
+        loss_history = []
+        n_samples = len(data)
+        X = np.array([self.convert_to_vector(sentence.words, self.indexer) for sentence in data])
+        X = X/np.linalg.norm(X)
+        labels = np.array([sentence.label for sentence in data])
 
-                # Backward pass
-                update = learning_rate * loss
-                self.weights += (update * x)
-                self.bias += update
+        # Normalize
+        mean = np.mean(X)
+        std_dev = np.std(X)
+        X = (X - mean) / std_dev
 
-            np.random.shuffle(data)
-            break
+        for i in range(iterations):
+            linear_preds = np.dot(X, self.weights) + self.bias
+            predictions = self.sigmoid(linear_preds)
+
+            # Get gradients
+            dw = (1/n_samples) * np.dot(X.T, predictions - labels)
+            db = (1/n_samples) * np.sum(predictions - labels)
+
+            # Update parameters
+            self.weights -= learning_rate * dw
+            self.bias -= learning_rate * db
+
+            # Increase learning rate
+            # if i//10 == 0:
+                # learning_rate -= .2
+                # print(learning_rate)
+
+            # Calculate loss
+            loss = self.binary_cross_entropy(labels, predictions)
+            loss_history.append(loss)
+
+        print(loss_history)
 
 
 def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> PerceptronClassifier:
