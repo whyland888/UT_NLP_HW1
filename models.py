@@ -40,10 +40,20 @@ class UnigramFeatureExtractor(FeatureExtractor):
 
     def extract_features(self, sentence: List[str], add_to_indexer: bool=False) -> Counter:
         sentence = [self.remove_punctuation(word) for word in sentence]
-        indexer = self.indexer
         for word in sentence:
-            indexer.add_and_get_index(word, add=add_to_indexer)
+            self.indexer.add_and_get_index(word, add=add_to_indexer)
         return Counter(sentence)
+
+    def convert_to_vector(self, sentence, indexer):
+        feat_vector = np.zeros(len(indexer))
+        sent_counter = Counter(sentence)
+        words = list(sent_counter.keys())
+        counts = list(sent_counter.values())
+        indices = [indexer.index_of(word) for word in words]
+        for i in range(len(indices)):
+            index = indices[i]
+            feat_vector[index] = counts[i]
+        return feat_vector
 
     def get_indexer(self):
         return self.indexer
@@ -58,11 +68,22 @@ class BigramFeatureExtractor(FeatureExtractor):
 
     def extract_features(self, sentence: List[str], add_to_indexer: bool=False) -> Counter:
         sentence = [self.remove_punctuation(word) for word in sentence]
-        indexer = self.indexer
         bigrams = [f"{w1} {w2}" for w1, w2 in zip(sentence, sentence[1:])]
         for bigram in bigrams:
-            indexer.add_and_get_index(bigram, add=add_to_indexer)
+            self.indexer.add_and_get_index(bigram, add=add_to_indexer)
         return Counter(bigrams)
+
+    def convert_to_vector(self, sentence, indexer):
+        feat_vector = np.zeros(len(indexer))
+        bigrams = [f"{w1} {w2}" for w1, w2 in zip(sentence, sentence[1:])]
+        bigram_counter = Counter(bigrams)
+        words = list(bigram_counter.keys())
+        counts = list(bigram_counter.values())
+        indices = [indexer.index_of(word) for word in words]
+        for i in range(len(indices)):
+            index = indices[i]
+            feat_vector[index] = counts[i]
+        return feat_vector
 
     def get_indexer(self):
         return self.indexer
@@ -73,21 +94,27 @@ class BetterFeatureExtractor(FeatureExtractor):
     Better feature extractor...try whatever you can think of!
     """
     def __init__(self, indexer: Indexer):
-        raise Exception("Must be implemented")
+        self.indexer = indexer
+
+    # ef extract_features(self, sentence: List[str], add_to_indexer: bool=False) -> Counter:
+    # sentence = [self.remove_punctuation(word) for word in sentence]
+    # indexer = self.indexer
 
 
 class SentimentClassifier(object):
     """
     Sentiment classifier base type
     """
-    def __init__(self, feature_dict, indexer):
-        self.feature_dict = feature_dict
+    def __init__(self, feature_extractor, indexer, data):
+        self.feature_extractor = feature_extractor
         self.indexer = indexer
+        self.frequency_dicts = [feature_extractor.extract_features(sentence.words, add_to_indexer=True) for sentence
+                                in data]
 
         # Add up individual dictionaries to get vocab
         combined_counter = Counter()
-        for x in feature_dict:
-            combined_counter.update(x)
+        for frequency_dict in self.frequency_dicts:
+            combined_counter.update(frequency_dict)
 
         self.vocab = dict(combined_counter)
 
@@ -101,17 +128,6 @@ class SentimentClassifier(object):
         :return: Either 0 for negative class or 1 for positive class
         """
         raise Exception("Don't call me, call my subclasses")
-
-    def convert_to_vector(self, sentence, indexer):
-        feat_vector = np.zeros(len(self.vocab))
-        sent_counter = Counter(sentence)
-        words = list(sent_counter.keys())
-        counts = list(sent_counter.values())
-        indices = [indexer.index_of(word) for word in words]
-        for i in range(len(indices)):
-            index = indices[i]
-            feat_vector[index] = counts[i]
-        return feat_vector
 
 
 class TrivialSentimentClassifier(SentimentClassifier):
@@ -134,7 +150,7 @@ class PerceptronClassifier(SentimentClassifier):
         :param sentence: words (List[str]) in the sentence to classify
         :return: Either 0 for negative class or 1 for positive class
         """
-        x = self.convert_to_vector(sentence, self.indexer)
+        x = self.feature_extractor.convert_to_vector(sentence, self.indexer)
         z = np.dot(self.weights, x) + self.bias
         prediction = 1 if z > 0 else 0
         return prediction
@@ -142,7 +158,7 @@ class PerceptronClassifier(SentimentClassifier):
     def train(self, data, num_epochs=20, learning_rate=1):
         for epoch in range(num_epochs):
             for sentence in data:
-                x = self.convert_to_vector(sentence.words, self.indexer)
+                x = self.feature_extractor.convert_to_vector(sentence.words, self.indexer)
                 prediction = self.predict(sentence.words)
                 update = learning_rate * (sentence.label - prediction)
                 self.weights += (update * x)
@@ -156,9 +172,9 @@ class LogisticRegressionClassifier(SentimentClassifier):
     superclass. Hint: you'll probably need this class to wrap both the weight vector and featurizer -- feel free to
     modify the constructor to pass these in.
     """
-    def __init__(self, feature_dict, indexer, data):
-        super().__init__(feature_dict, indexer)
-        X = np.array([self.convert_to_vector(sentence.words, self.indexer) for sentence in data])
+    def __init__(self, feature_extractor, indexer, data):
+        super().__init__(feature_extractor, indexer, data)
+        X = np.array([self.feature_extractor.convert_to_vector(sentence.words, self.indexer) for sentence in data])
         self.l1 = np.linalg.norm(X)
         X = X/self.l1
         self.mean = np.mean(X)
@@ -177,7 +193,7 @@ class LogisticRegressionClassifier(SentimentClassifier):
 
     def predict(self, sentence: List[str]) -> int:
         # Convert to array, L1 penalty, normalize
-        x = np.array(self.convert_to_vector(sentence, self.indexer))
+        x = np.array(self.feature_extractor.convert_to_vector(sentence, self.indexer))
         x = x /self.l1
         x = (x - self.mean) / self.std_dev
 
@@ -217,9 +233,8 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
     :param feat_extractor: feature extractor to use
     :return: trained PerceptronClassifier model
     """
-    frequency_dicts = [feat_extractor.extract_features(sentence.words, add_to_indexer=True) for sentence in train_exs]
     indexer = feat_extractor.get_indexer()
-    perceptron = PerceptronClassifier(feature_dict=frequency_dicts, indexer=indexer)
+    perceptron = PerceptronClassifier(feature_extractor=feat_extractor, indexer=indexer, data=train_exs)
     perceptron.train(data=train_exs)
     return perceptron
 
@@ -231,9 +246,8 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     :param feat_extractor: feature extractor to use
     :return: trained LogisticRegressionClassifier model
     """
-    frequency_dicts = [feat_extractor.extract_features(sentence.words, add_to_indexer=True) for sentence in train_exs]
     indexer = feat_extractor.get_indexer()
-    logreg = LogisticRegressionClassifier(feature_dict=frequency_dicts, indexer=indexer, data=train_exs)
+    logreg = LogisticRegressionClassifier(feature_extractor=feat_extractor, indexer=indexer, data=train_exs)
     logreg.train()
     return logreg
 
