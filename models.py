@@ -27,10 +27,7 @@ class FeatureExtractor(object):
 
     def remove_punctuation(self, word):
         punctuation =  '''!()-[]{};:'"\,<>./?@#$%^&*_~'''
-        for element in word:
-            if element in punctuation:
-                word = word.replace(element, "")
-        return word
+        return word.translate(str.maketrans("", "", punctuation))
 
 
 class UnigramFeatureExtractor(FeatureExtractor):
@@ -57,7 +54,18 @@ class BigramFeatureExtractor(FeatureExtractor):
     Bigram feature extractor analogous to the unigram one.
     """
     def __init__(self, indexer: Indexer):
-        raise Exception("Must be implemented")
+        self.indexer = indexer
+
+    def extract_features(self, sentence: List[str], add_to_indexer: bool=False) -> Counter:
+        sentence = [self.remove_punctuation(word) for word in sentence]
+        indexer = self.indexer
+        bigrams = [f"{w1} {w2}" for w1, w2 in zip(sentence, sentence[1:])]
+        for bigram in bigrams:
+            indexer.add_and_get_index(bigram, add=add_to_indexer)
+        return Counter(bigrams)
+
+    def get_indexer(self):
+        return self.indexer
 
 
 class BetterFeatureExtractor(FeatureExtractor):
@@ -148,6 +156,16 @@ class LogisticRegressionClassifier(SentimentClassifier):
     superclass. Hint: you'll probably need this class to wrap both the weight vector and featurizer -- feel free to
     modify the constructor to pass these in.
     """
+    def __init__(self, feature_dict, indexer, data):
+        super().__init__(feature_dict, indexer)
+        X = np.array([self.convert_to_vector(sentence.words, self.indexer) for sentence in data])
+        self.l1 = np.linalg.norm(X)
+        X = X/self.l1
+        self.mean = np.mean(X)
+        self.std_dev = np.std(X)
+        self.X = (X - self.mean) / self.std_dev
+        self.labels = np.array([sentence.label for sentence in data])
+
     def sigmoid(self, z):
         z = np.clip(z, -500, 500)
         return 1/(1 + np.exp(-z))
@@ -158,50 +176,35 @@ class LogisticRegressionClassifier(SentimentClassifier):
         return -1/len(y) * np.sum(y * np.log(y_pred) + (1 - y) * np.log(1 - y_pred))
 
     def predict(self, sentence: List[str]) -> int:
-        X = np.array(self.convert_to_vector(sentence, self.indexer))
-        X = X/np.linalg.norm(X)
+        # Convert to array, L1 penalty, normalize
+        x = np.array(self.convert_to_vector(sentence, self.indexer))
+        x = x /self.l1
+        x = (x - self.mean) / self.std_dev
 
-        # Normalize
-        mean = np.mean(X)
-        std_dev = np.std(X)
-        X = (X - mean) / std_dev
-
-        linear_preds = np.dot(X, self.weights) + self.bias
+        # Predict
+        linear_preds = np.dot(x, self.weights) + self.bias
         z = self.sigmoid(linear_preds)
         prediction = 1 if z > .5 else 0
         return prediction
 
-    def train(self, data, iterations=4000, learning_rate=.002):
+    def train(self, iterations=1000, learning_rate=.006):
         loss_history = []
-        n_samples = len(data)
-        X = np.array([self.convert_to_vector(sentence.words, self.indexer) for sentence in data])
-        X = X/np.linalg.norm(X)
-        labels = np.array([sentence.label for sentence in data])
-
-        # Normalize
-        mean = np.mean(X)
-        std_dev = np.std(X)
-        X = (X - mean) / std_dev
+        n_samples = len(self.labels)
 
         for i in range(iterations):
-            linear_preds = np.dot(X, self.weights) + self.bias
+            linear_preds = np.dot(self.X, self.weights) + self.bias
             predictions = self.sigmoid(linear_preds)
 
             # Get gradients
-            dw = (1/n_samples) * np.dot(X.T, predictions - labels)
-            db = (1/n_samples) * np.sum(predictions - labels)
+            dw = (1/n_samples) * np.dot(self.X.T, predictions - self.labels)
+            db = (1/n_samples) * np.sum(predictions - self.labels)
 
             # Update parameters
             self.weights -= learning_rate * dw
             self.bias -= learning_rate * db
 
-            # Increase learning rate
-            # if i//10 == 0:
-                # learning_rate -= .2
-                # print(learning_rate)
-
             # Calculate loss
-            loss = self.binary_cross_entropy(labels, predictions)
+            loss = self.binary_cross_entropy(self.labels, predictions)
             loss_history.append(loss)
 
         print(loss_history)
@@ -230,8 +233,8 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     """
     frequency_dicts = [feat_extractor.extract_features(sentence.words, add_to_indexer=True) for sentence in train_exs]
     indexer = feat_extractor.get_indexer()
-    logreg = LogisticRegressionClassifier(feature_dict=frequency_dicts, indexer=indexer)
-    logreg.train(data=train_exs)
+    logreg = LogisticRegressionClassifier(feature_dict=frequency_dicts, indexer=indexer, data=train_exs)
+    logreg.train()
     return logreg
 
 
