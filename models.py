@@ -1,9 +1,10 @@
 # models.py
-
 from sentiment_data import *
 from utils import *
 import numpy as np
 from collections import Counter
+import nltk
+from nltk.corpus import stopwords
 
 
 class FeatureExtractor(object):
@@ -28,6 +29,10 @@ class FeatureExtractor(object):
     def remove_punctuation(self, word):
         punctuation =  '''!()-[]{};:'"\,<>./?@#$%^&*_~'''
         return word.translate(str.maketrans("", "", punctuation))
+
+    def remove_stopwords(self, sentence):
+        nltk.download('stopwords')
+        return [word for word in sentence if word not in stopwords.words('english')]
 
 
 class UnigramFeatureExtractor(FeatureExtractor):
@@ -97,8 +102,13 @@ class BetterFeatureExtractor(FeatureExtractor):
         self.indexer = indexer
 
     def extract_features(self, sentence: List[str], add_to_indexer: bool=False) -> Counter:
-        sentence = [self.remove_punctuation(word) for word in sentence]
+        sentence = [self.remove_punctuation(word).lower() for word in sentence]
+        sentence = self.remove_stopwords(sentence)
+        return Counter(sentence)
 
+
+    def convert_to_vector(self, sentence, indexer):
+        return None
 
 
 class SentimentClassifier(object):
@@ -176,7 +186,6 @@ class LogisticRegressionClassifier(SentimentClassifier):
         super().__init__(feature_extractor, indexer, data)
         X = np.array([self.feature_extractor.convert_to_vector(sentence.words, self.indexer) for sentence in data])
         self.l1 = np.linalg.norm(X)
-        X = X/self.l1
         self.mean = np.mean(X)
         self.std_dev = np.std(X)
         self.X = (X - self.mean) / self.std_dev
@@ -194,7 +203,6 @@ class LogisticRegressionClassifier(SentimentClassifier):
     def predict(self, sentence: List[str]) -> int:
         # Convert to array, L1 penalty, normalize
         x = np.array(self.feature_extractor.convert_to_vector(sentence, self.indexer))
-        x = x /self.l1
         x = (x - self.mean) / self.std_dev
 
         # Predict
@@ -203,7 +211,7 @@ class LogisticRegressionClassifier(SentimentClassifier):
         prediction = 1 if z > .5 else 0
         return prediction
 
-    def train(self, iterations=1000, learning_rate=.006):
+    def train(self, iterations=400, learning_rate=.005):
         loss_history = []
         n_samples = len(self.labels)
 
