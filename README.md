@@ -18,3 +18,24 @@ development set, and it should run in less than 20 seconds.
 **Best Performance (learning_rate=.005, n_epochs=700):**
 
 <img src="Results/unigram_logreg.png"/>
+
+
+## Part 3: Features (30 points)
+
+### Q3 (15 points)
+
+Implement and experiment with BigramFeatureExtractor. 
+
+*done - see code*
+
+
+### Q4 (15 points)
+
+Experiment with at least one feature modification in BetterFeatureExtractor.
+
+Implemented:
+
+1. Stop words
+2. Lower casing
+3. TF-IDF weighting
+
